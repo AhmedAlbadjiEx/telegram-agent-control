@@ -1,0 +1,24 @@
+[server]
+state_dir = "~/.local/state/telegram-agent-control"
+max_parallel = 2
+timeout_seconds = 1800
+progress_interval_seconds = 5
+max_output_bytes = 2000000
+
+[projects]
+myapp = "/home/agent/projects/myapp"
+# api = "/home/agent/projects/api"
+
+[agents.codex]
+kind = "codex"
+command = ["codex"]
+
+[agents.claude]
+kind = "claude"
+command = ["claude"]
+
+# Optional: any headless CLI that reads a prompt on stdin and writes text.
+# Generic adapters support /new, progress, logs and stop, but not /ask.
+# [agents.local]
+# kind = "generic"
+# command = ["/usr/local/bin/my-agent", "--headless"]

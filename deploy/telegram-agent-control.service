@@ -1,0 +1,20 @@
+# User service: ~/.config/systemd/user/telegram-agent-control.service
+[Unit]
+Description=Telegram Remote Agent Control
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/telegram-agent-control
+EnvironmentFile=%h/telegram-agent-control/.env
+Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/python3 -m agent_control --config %h/telegram-agent-control/config.toml
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=60
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
