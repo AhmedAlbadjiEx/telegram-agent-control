@@ -29,6 +29,17 @@ class Store:
         with self.db:
             self.db.execute("INSERT INTO settings VALUES ('offset',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (str(offset),))
 
+    def language(self, owner):
+        row = self.db.execute("SELECT value FROM settings WHERE key=?", (f'language:{owner}',)).fetchone()
+        return row[0] if row and row[0] in ('en', 'ar') else None
+
+    def set_language(self, owner, language):
+        if language not in ('en', 'ar'):
+            raise ValueError('Unsupported language.')
+        with self.db:
+            self.db.execute("INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (f'language:{owner}', language))
+
     def create(self, owner, chat, agent, project):
         sid = uuid.uuid4().hex[:12]
         with self.db:

@@ -8,6 +8,7 @@ import unittest
 from agent_control.adapters import command, event
 from agent_control.bot import Bot
 from agent_control.config import Config
+from agent_control.i18n import MESSAGES, normalize_language, status_text
 from agent_control.runner import Runner
 from agent_control.store import Store
 
@@ -48,8 +49,11 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await self.runner.close()
         self.store.db.close()
         self.tmp.cleanup()
-    def update(self,text,owner=1,kind='private'):
-        return {'message':{'from':{'id':owner},'chat':{'id':owner,'type':kind},'text':text,'date':time.time()}}
+    def update(self,text,owner=1,kind='private',language=None):
+        sender = {'id':owner}
+        if language:
+            sender['language_code'] = language
+        return {'message':{'from':sender,'chat':{'id':owner,'type':kind},'text':text,'date':time.time()}}
     async def complete(self):
         await asyncio.gather(*(a.task for a in list(self.runner.active.values())))
     def start(self,code=None):
@@ -79,6 +83,27 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await self.bot.handle(self.update('/new fake ../../etc hello'))
         self.assertFalse(self.runner.active)
         self.assertIn('Unknown alias',self.tg.messages[-1][1])
+    async def test_arabic_is_detected_and_persisted(self):
+        await self.bot.handle(self.update('/help', language='ar-YE'))
+        self.assertEqual(self.store.language(1), 'ar')
+        self.assertIn('التحكم بالوكلاء', self.tg.messages[-1][1])
+        await self.bot.handle(self.update('/new unknown app hello', language='en'))
+        self.assertIn('اسم غير معروف', self.tg.messages[-1][1])
+    async def test_language_command_changes_preference(self):
+        await self.bot.handle(self.update('/language ar', language='en'))
+        self.assertEqual(self.store.language(1), 'ar')
+        self.assertIn('العربية', self.tg.messages[-1][1])
+        await self.bot.handle(self.update('/language en', language='ar'))
+        self.assertEqual(self.store.language(1), 'en')
+        self.assertIn('English', self.tg.messages[-1][1])
+    async def test_arabic_run_status_and_output(self):
+        await self.bot.handle(self.update('/language ar'))
+        await self.bot.handle(self.update('/new fake app مرحبا'))
+        await self.complete()
+        replies = '\n'.join(message for _, message in self.tg.messages)
+        self.assertIn('بدأ تشغيل', replies)
+        self.assertIn('مكتملة', replies)
+        self.assertIn('مرحبا', replies)
     async def test_project_lock(self):
         self.start()
         with self.assertRaisesRegex(ValueError,'already has'): self.runner.check('app')
@@ -180,3 +205,13 @@ class TelegramTextTests(unittest.TestCase):
         from agent_control.telegram import telegram_text
         output = telegram_text('😀'*4000)
         self.assertLessEqual(len(output.encode('utf-16-le')),7000)
+
+class LocalizationTests(unittest.TestCase):
+    def test_catalogs_have_the_same_messages(self):
+        self.assertEqual(set(MESSAGES['en']), set(MESSAGES['ar']))
+
+    def test_language_and_status_fallbacks(self):
+        self.assertEqual(normalize_language('ar_YE'), 'ar')
+        self.assertEqual(normalize_language('fr'), 'en')
+        self.assertEqual(status_text('ar', 'running'), 'قيد التشغيل')
+        self.assertEqual(status_text('ar', 'vendor_state'), 'vendor_state')

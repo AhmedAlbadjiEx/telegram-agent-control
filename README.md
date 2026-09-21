@@ -1,5 +1,7 @@
 # Telegram Remote Agent Control
 
+[العربية](docs/README.ar.md)
+
 Run Codex, Claude Code, and other headless agents on your Linux server from a private Telegram conversation. Start tasks, see progress, inspect recent output, stop work, and resume conversations.
 
 **Status:** working initial implementation with automated process and protocol tests. Live Telegram and authenticated Codex/Claude operation must be verified on your server. This project manages conversations it starts; it does not attach to arbitrary existing terminals.
@@ -16,6 +18,7 @@ Run Codex, Claude Code, and other headless agents on your Linux server from a pr
 - Time/output limits and process-group termination.
 - Outbound HTTPS long polling; no inbound port, public domain, or tunnel required.
 - Python 3.11+ standard library only; no runtime pip dependencies.
+- English and Arabic bot interfaces, with automatic Telegram-language detection and a saved per-user preference.
 
 ## Setup on Ubuntu/Linux
 
@@ -58,6 +61,7 @@ python3 -m agent_control
 /status SESSION_ID
 /ask SESSION_ID Implement that improvement and run the tests
 /stop SESSION_ID
+/language ar
 ```
 
 Replace `SESSION_ID` with the 12-character ID the bot returns. To use Claude:
@@ -108,7 +112,10 @@ The systemd unit kills remaining processes in its control group when stopped. Di
 | `/logs <session>` | Most recent 3,000 characters |
 | `/history <session>` | Most recent 10 run statuses |
 | `/stop <session>` | Terminate the run and its process group |
+| `/language <en\|ar>` | Save your preferred interface language |
 | `/help` | Command reference |
+
+The first private message uses the sender's Telegram language (`ar` selects Arabic; all other languages fall back to English). The choice is saved per allowlisted user. Use `/language ar` or `/language en` at any time to override it. Commands and configured aliases remain in ASCII so they work consistently in Telegram and server configuration; prompts and agent output fully support Arabic Unicode text.
 
 Progress is edited about every five seconds when output changes. Agent tool events appear as the CLI emits them; this is not a token-by-token terminal mirror. Output is plain Telegram text. Recent output is capped at 24,000 characters per run; the total stream cap defaults to 2 MB and stops excessively verbose runs. Run metadata is retained indefinitely; back up and manage the SQLite database as needed.
 

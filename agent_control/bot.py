@@ -2,20 +2,7 @@ import asyncio
 import logging
 import time
 
-HELP = '''Remote Agent Control
-/agents — configured agents
-/projects — configured projects
-/new <agent> <project> <instruction> — start a conversation
-/sessions — your latest conversations
-/status <session> — state and recent output
-/logs <session> — last 3000 characters
-/history <session> — recent runs
-/ask <session> <instruction> — resume after a run finishes
-/stop <session> — stop the active run
-/help — this message
-
-Example: /new codex myapp explain this repository
-Session IDs are shown when a run starts. Only private chats are accepted.'''
+from .i18n import error_text, normalize_language, status_text, text as translate
 
 
 class Bot:
@@ -32,56 +19,88 @@ class Bot:
         if not text:
             return
         owner, chat_id = sender['id'], chat['id']
+        language = self.store.language(owner)
+        if language is None:
+            language = normalize_language(sender.get('language_code'))
+            self.store.set_language(owner, language)
         cmd, _, rest = text.partition(' ')
         cmd = cmd.split('@')[0].lower()
         try:
             if cmd in ('/start', '/help'):
-                reply = HELP
+                reply = translate(language, 'help')
+            elif cmd in ('/language', '/lang'):
+                requested = rest.strip().lower()
+                aliases = {'en': 'en', 'english': 'en', 'ar': 'ar', 'arabic': 'ar', 'العربية': 'ar', 'الإنجليزية': 'en'}
+                if not requested:
+                    name = 'العربية' if language == 'ar' else 'English'
+                    reply = translate(language, 'language_help', language=name)
+                elif requested not in aliases:
+                    reply = translate(language, 'language_invalid')
+                else:
+                    language = aliases[requested]
+                    self.store.set_language(owner, language)
+                    reply = translate(language, 'language_changed')
             elif cmd == '/agents':
-                reply = 'Agents: ' + ', '.join(self.cfg.agents)
+                reply = translate(language, 'agents', items=', '.join(self.cfg.agents))
             elif cmd == '/projects':
-                reply = 'Projects: ' + ', '.join(self.cfg.projects)
+                reply = translate(language, 'projects', items=', '.join(self.cfg.projects))
             elif cmd == '/new':
                 parts = rest.split(maxsplit=2)
                 if len(parts) != 3:
-                    raise ValueError('Usage: /new <agent> <project> <instruction>')
+                    reply = translate(language, 'error_usage_new')
+                    await self.telegram.send(chat_id, reply)
+                    return
                 agent, project, prompt = parts
                 if agent not in self.cfg.agents or project not in self.cfg.projects:
-                    raise ValueError('Unknown alias. Use /agents and /projects.')
+                    reply = translate(language, 'error_unknown_alias')
+                    await self.telegram.send(chat_id, reply)
+                    return
                 self.runner.check(project)
                 session = self.store.create(owner, chat_id, agent, project)
                 rid = self.runner.start(session, prompt)
-                reply = f"Started {agent} on {project}.\nSession: {session['id']} • run {rid}\n/stop {session['id']}"
+                reply = translate(language, 'started', agent=agent, project=project, session=session['id'], run=rid)
             elif cmd == '/sessions':
                 rows = self.store.sessions(owner)
-                reply = '\n'.join(f"{s['id']} · {s['agent']}/{s['project']} · {(self.store.latest(s['id']) or {}).get('status', 'new')}" for s in rows) or 'No sessions yet. Use /new.'
+                reply = '\n'.join(translate(language, 'session_line', session=s['id'], agent=s['agent'], project=s['project'],
+                                           status=status_text(language, (self.store.latest(s['id']) or {}).get('status', 'new')))
+                                  for s in rows) or translate(language, 'no_sessions')
             elif cmd in ('/status', '/logs', '/history', '/stop', '/ask'):
                 parts = rest.split(maxsplit=1)
                 if not parts:
-                    raise ValueError(f'Usage: {cmd} <session>' + (' <instruction>' if cmd == '/ask' else ''))
+                    reply = translate(language, 'error_usage_session', command=cmd,
+                                 suffix=' <instruction>' if cmd == '/ask' else '')
+                    await self.telegram.send(chat_id, reply)
+                    return
                 session = self.store.session(parts[0], owner)
                 sid = session['id']
                 row = self.store.latest(sid)
                 if cmd == '/ask':
                     if len(parts) != 2:
-                        raise ValueError('Usage: /ask <session> <instruction>')
+                        reply = translate(language, 'error_usage_ask')
+                        await self.telegram.send(chat_id, reply)
+                        return
                     if not session['native_id']:
-                        raise ValueError('No resumable conversation ID was captured. Start a new session with /new.')
+                        reply = translate(language, 'error_no_native')
+                        await self.telegram.send(chat_id, reply)
+                        return
                     rid = self.runner.start(session, parts[1])
-                    reply = f'Resuming {sid} • run {rid}'
+                    reply = translate(language, 'resuming', session=sid, run=rid)
                 elif cmd == '/stop':
                     await self.runner.stop(sid)
-                    reply = f'Stop requested for {sid}.'
+                    reply = translate(language, 'stop_requested', session=sid)
                 elif cmd == '/history':
-                    reply = '\n'.join(f"Run {r['id']}: {r['status']} (exit {r['exit_code']})" for r in self.store.history(sid)) or 'No runs.'
+                    reply = '\n'.join(translate(language, 'history_line', run=r['id'], status=status_text(language, r['status']),
+                                               exit_code=r['exit_code']) for r in self.store.history(sid)) or translate(language, 'no_runs')
                 elif cmd == '/logs':
-                    reply = (row or {}).get('output', '')[-3000:] or 'No output yet.'
+                    reply = (row or {}).get('output', '')[-3000:] or translate(language, 'no_output')
                 else:
-                    reply = f"{sid} · {session['agent']}/{session['project']}\nState: {(row or {}).get('status', 'new')}\n{(row or {}).get('output', '')[-2600:]}"
+                    reply = translate(language, 'status', session=sid, agent=session['agent'], project=session['project'],
+                                 status=status_text(language, (row or {}).get('status', 'new')),
+                                 output=(row or {}).get('output', '')[-2600:])
             else:
-                reply = 'Use /help for commands. Send follow-ups with /ask <session> <instruction>.'
+                reply = translate(language, 'unknown_command')
         except ValueError as exc:
-            reply = str(exc)
+            reply = error_text(language, str(exc))
         await self.telegram.send(chat_id, reply)
 
     async def poll(self, stop):

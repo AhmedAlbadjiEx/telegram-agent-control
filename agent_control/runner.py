@@ -4,6 +4,7 @@ import os
 import signal
 
 from .adapters import command, event
+from .i18n import status_text, text as translate
 
 
 @dataclass
@@ -78,16 +79,18 @@ class Runner:
     async def _report(self, active):
         message = None
         previous = ''
+        language = self.store.language(active.session['owner']) or 'en'
         while True:
             row = self.store.latest(active.session['id'])
-            text = f"Session {active.session['id']} • {row['status']}\n{row['output'][-2900:]}"
-            if text != previous:
+            report_text = translate(language, 'progress', session=active.session['id'],
+                               status=status_text(language, row['status']), output=row['output'][-2900:])
+            if report_text != previous:
                 try:
                     if message is None:
-                        message = await self.telegram.send(active.session['chat'], text)
+                        message = await self.telegram.send(active.session['chat'], report_text)
                     else:
-                        await self.telegram.edit(active.session['chat'], message, text)
-                    previous = text
+                        await self.telegram.edit(active.session['chat'], message, report_text)
+                    previous = report_text
                 except Exception:
                     # Telegram outages must never interrupt or rerun the agent.
                     pass
@@ -145,6 +148,8 @@ class Runner:
             self.active.pop(s['id'], None)
             row = self.store.latest(s['id'])
             try:
-                await self.telegram.send(s['chat'], f"Session {s['id']} • {status}\n{row['output'][-2900:]}\n\n/ask {s['id']} your next instruction")
+                language = self.store.language(s['owner']) or 'en'
+                await self.telegram.send(s['chat'], translate(language, 'finished', session=s['id'],
+                                         status=status_text(language, status), output=row['output'][-2900:]))
             except Exception:
                 pass  # Results remain available through /status and /logs.
